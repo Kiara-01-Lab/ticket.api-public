@@ -4,7 +4,7 @@ Thank you to everyone who has contributed to TicketKit!
 
 ## Core Team
 
-- **Owais Munawar** ([@owaismunawar](https://github.com/owaismunawar)) - Lead Developer & Architect
+- **Owais Munawar** - Lead Developer & Architect
 - **Dai** - Product & Design
 
 ## How to Contribute

@@ -440,7 +440,7 @@ Contributions welcome! Please read our contributing guidelines first.
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourname/ticketkit.git
+git clone https://github.com/Kiara-01-Lab/ticket.api-public.git
 
 # Install dependencies
 cd ticketkit && npm install
