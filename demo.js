@@ -1,5 +1,9 @@
 /**
- * TicketKit Usage Examples
+ * TicketKit Usage Examples (v0.1.0)
+ *
+ * Note: This demo will be updated to showcase v0.2.0 features (PostgreSQL,
+ * attachments, CFD, activity export) in the next release. See README.md
+ * for v0.2.0 API documentation and code examples.
  *
  * Run: node demo.js
  */

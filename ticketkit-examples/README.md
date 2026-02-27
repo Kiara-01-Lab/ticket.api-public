@@ -2,6 +2,8 @@
 
 > Production-ready examples showing how to build with TicketKit.
 
+**⚠️ Note:** Examples are currently for v0.1.0 and will be updated to v0.2.0 (PostgreSQL, attachments, CFD, activity export) in the next release. See [main README](../README.md) for v0.2.0 API documentation and code examples.
+
 ## 📂 Examples
 
 | Example | Description | Stack |
