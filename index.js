@@ -147,6 +147,7 @@ class StorageAdapter {
   
   // Comments
   async createComment(comment) { throw new Error('Not implemented'); }
+  async getComment(id) { throw new Error('Not implemented'); }
   async listComments(ticketId) { throw new Error('Not implemented'); }
   async deleteComment(id) { throw new Error('Not implemented'); }
   
@@ -247,7 +248,8 @@ class SQLiteAdapter extends StorageAdapter {
 
       CREATE TABLE IF NOT EXISTS attachments (
         id TEXT PRIMARY KEY,
-        ticket_id TEXT NOT NULL,
+        ticket_id TEXT,
+        comment_id TEXT,
         filename TEXT NOT NULL,
         original_filename TEXT NOT NULL,
         mime_type TEXT NOT NULL,
@@ -255,7 +257,8 @@ class SQLiteAdapter extends StorageAdapter {
         storage_path TEXT NOT NULL,
         uploaded_by TEXT NOT NULL,
         created_at TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+        FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
       );
 
       CREATE INDEX IF NOT EXISTS idx_tickets_board ON tickets(board_id);
@@ -523,6 +526,14 @@ class SQLiteAdapter extends StorageAdapter {
     return comment;
   }
 
+  async getComment(id) {
+    const stmt = this.db.prepare('SELECT * FROM comments WHERE id = ?');
+    stmt.bind([id]);
+    const result = stmt.step() ? stmt.getAsObject() : null;
+    stmt.free();
+    return result;
+  }
+
   async listComments(ticketId) {
     const results = [];
     const stmt = this.db.prepare('SELECT * FROM comments WHERE ticket_id = ? ORDER BY created_at ASC');
@@ -705,9 +716,15 @@ class SQLiteAdapter extends StorageAdapter {
     return result;
   }
 
-  async listAttachments(ticketId) {
-    const stmt = this.db.prepare('SELECT * FROM attachments WHERE ticket_id = ? ORDER BY created_at DESC');
-    stmt.bind([ticketId]);
+  async listAttachments(ticketId, commentId = null) {
+    let stmt;
+    if (commentId) {
+      stmt = this.db.prepare('SELECT * FROM attachments WHERE comment_id = ? ORDER BY created_at DESC');
+      stmt.bind([commentId]);
+    } else {
+      stmt = this.db.prepare('SELECT * FROM attachments WHERE ticket_id = ? AND comment_id IS NULL ORDER BY created_at DESC');
+      stmt.bind([ticketId]);
+    }
 
     const results = [];
     while (stmt.step()) {
@@ -938,7 +955,8 @@ class PostgreSQLAdapter extends StorageAdapter {
 
       CREATE TABLE IF NOT EXISTS attachments (
         id TEXT PRIMARY KEY,
-        ticket_id TEXT NOT NULL,
+        ticket_id TEXT,
+        comment_id TEXT,
         filename TEXT NOT NULL,
         original_filename TEXT NOT NULL,
         mime_type TEXT NOT NULL,
@@ -946,7 +964,8 @@ class PostgreSQLAdapter extends StorageAdapter {
         storage_path TEXT NOT NULL,
         uploaded_by TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+        FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+        FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS workflows (
@@ -1227,6 +1246,14 @@ class PostgreSQLAdapter extends StorageAdapter {
     return comment;
   }
 
+  async getComment(id) {
+    const result = await this.pool.query(
+      'SELECT * FROM comments WHERE id = $1',
+      [id]
+    );
+    return result.rows[0] || null;
+  }
+
   async listComments(ticketId) {
     const result = await this.pool.query(
       'SELECT * FROM comments WHERE ticket_id = $1 ORDER BY created_at ASC',
@@ -1383,11 +1410,19 @@ class PostgreSQLAdapter extends StorageAdapter {
     return result.rows[0] || null;
   }
 
-  async listAttachments(ticketId) {
-    const result = await this.pool.query(
-      'SELECT * FROM attachments WHERE ticket_id = $1 ORDER BY created_at DESC',
-      [ticketId]
-    );
+  async listAttachments(ticketId, commentId = null) {
+    let result;
+    if (commentId) {
+      result = await this.pool.query(
+        'SELECT * FROM attachments WHERE comment_id = $1 ORDER BY created_at DESC',
+        [commentId]
+      );
+    } else {
+      result = await this.pool.query(
+        'SELECT * FROM attachments WHERE ticket_id = $1 AND comment_id IS NULL ORDER BY created_at DESC',
+        [ticketId]
+      );
+    }
     return result.rows;
   }
 
@@ -1711,6 +1746,10 @@ class TicketKit {
     return comment;
   }
 
+  async getComment(id) {
+    return this.storage.getComment(id);
+  }
+
   async listComments(ticketId) {
     return this.storage.listComments(ticketId);
   }
@@ -1752,8 +1791,8 @@ class TicketKit {
     return this.storage.getAttachment(id);
   }
 
-  async listAttachments(ticketId) {
-    return this.storage.listAttachments(ticketId);
+  async listAttachments(ticketId, commentId = null) {
+    return this.storage.listAttachments(ticketId, commentId);
   }
 
   async deleteAttachment(id, actor = 'system') {
@@ -1777,12 +1816,13 @@ class TicketKit {
   }
 
   // Convenience wrapper for API endpoint
-  async addAttachment(ticketId, fileData, uploadedBy) {
+  async addAttachment(ticketId, fileData, uploadedBy, commentId = null) {
     const ticket = await this.storage.getTicket(ticketId);
     if (!ticket) throw new Error(`Ticket ${ticketId} not found`);
 
     const attachment = await this.storage.createAttachment({
-      ticket_id: ticketId,
+      ticket_id: commentId ? null : ticketId,
+      comment_id: commentId,
       filename: fileData.filename,
       original_filename: fileData.original_filename,
       mime_type: fileData.mime_type,
@@ -1791,13 +1831,16 @@ class TicketKit {
       uploaded_by: uploadedBy
     });
 
-    await this.storage.createActivity({
-      ticket_id: ticketId,
-      board_id: ticket.board_id,
-      actor: uploadedBy,
-      action: 'attachment_added',
-      changes: { attachment_id: attachment.id, filename: fileData.original_filename }
-    });
+    // Only create activity for ticket attachments, not comment attachments
+    if (!commentId) {
+      await this.storage.createActivity({
+        ticket_id: ticketId,
+        board_id: ticket.board_id,
+        actor: uploadedBy,
+        action: 'attachment_added',
+        changes: { attachment_id: attachment.id, filename: fileData.original_filename }
+      });
+    }
 
     this.emit('attachment:added', attachment);
     return attachment;
